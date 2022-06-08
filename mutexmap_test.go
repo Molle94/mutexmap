@@ -7,6 +7,7 @@ import (
 	"math/rand"
 	"reflect"
 	"runtime"
+	"sync"
 	"sync/atomic"
 	"testing"
 )
@@ -109,34 +110,33 @@ func TestConcurrentRange(t *testing.T) {
 		m.Store(n, int64(n))
 	}
 
-	// !BUG: Lead to concurrent map read and write
-	// done := make(chan struct{})
-	// var wg sync.WaitGroup
-	// defer func() {
-	// close(done)
-	// wg.Wait()
-	// }()
-	// for g := int64(runtime.GOMAXPROCS(0)); g > 0; g-- {
-	// r := rand.New(rand.NewSource(g))
-	// wg.Add(1)
-	// go func(g int64) {
-	// defer wg.Done()
-	// for i := int64(0); ; i++ {
-	// select {
-	// case <-done:
-	// return
-	// default:
-	// }
-	// for n := int64(1); n < mapSize; n++ {
-	// if r.Int63n(mapSize) == 0 {
-	// m.Store(n, n*i*g)
-	// } else {
-	// m.Load(n)
-	// }
-	// }
-	// }
-	// }(g)
-	// }
+	done := make(chan struct{})
+	var wg sync.WaitGroup
+	defer func() {
+		close(done)
+		wg.Wait()
+	}()
+	for g := int64(runtime.GOMAXPROCS(0)); g > 0; g-- {
+		r := rand.New(rand.NewSource(g))
+		wg.Add(1)
+		go func(g int64) {
+			defer wg.Done()
+			for i := int64(0); ; i++ {
+				select {
+				case <-done:
+					return
+				default:
+				}
+				for n := int64(1); n < mapSize; n++ {
+					if r.Int63n(mapSize) == 0 {
+						m.Store(n, n*i*g)
+					} else {
+						m.Load(n)
+					}
+				}
+			}
+		}(g)
+	}
 
 	iters := 1 << 10
 	if testing.Short() {

@@ -20,8 +20,8 @@ func NewMutexMap[K comparable, V any]() *MutexMap[K, V] {
 }
 
 func (m *MutexMap[K, V]) Store(key K, val V) {
-	m.RLock()
-	defer m.RUnlock()
+	m.Lock()
+	defer m.Unlock()
 
 	m.store[key] = val
 }
@@ -35,15 +35,15 @@ func (m *MutexMap[K, V]) Load(key K) (V, bool) {
 }
 
 func (m *MutexMap[K, _]) Delete(key K) {
-	m.RLock()
-	defer m.RUnlock()
+	m.Lock()
+	defer m.Unlock()
 
 	delete(m.store, key)
 }
 
 func (m *MutexMap[K, V]) LoadAndDelete(key K) (V, bool) {
-	m.RLock()
-	defer m.RUnlock()
+	m.Lock()
+	defer m.Unlock()
 
 	val, loaded := m.store[key]
 	if loaded {
@@ -53,8 +53,8 @@ func (m *MutexMap[K, V]) LoadAndDelete(key K) (V, bool) {
 }
 
 func (m *MutexMap[K, V]) LoadOrStore(key K, val V) (V, bool) {
-	m.RLock()
-	defer m.RUnlock()
+	m.Lock()
+	defer m.Unlock()
 
 	if val, ok := m.store[key]; ok {
 		return val, ok
