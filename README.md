@@ -5,6 +5,3 @@ For benchmarks with sync.Map compare (https://medium.com/@deckarep/the-new-kid-i
 ## Usage
 Create a new MutexMap with `string` keys and `*http.Client` values  
 `m := NewMutexMap[string, *http.Client]() `
-
-## Known Limitations
-Unit test are not fully added yet.

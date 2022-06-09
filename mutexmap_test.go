@@ -10,6 +10,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/quick"
 )
 
 type mapOp string
@@ -26,23 +27,45 @@ var mapOps = [...]mapOp{opLoad, opStore, opLoadOrStore, opLoadAndDelete, opDelet
 
 // mapCall is a quick.Generator for calls on mapInterface.
 type mapCall struct {
-	op   mapOp
-	k, v string
+	op mapOp
+	k  string
+	v  any
 }
 
-func (c mapCall) apply(m MutexMap[string, string]) (any, bool) {
+// func (c mapCall) apply(m mapInterface) (any, bool) {
+func (c mapCall) apply(m *MutexMap[string, any], s *sync.Map) (any, bool) {
 	switch c.op {
 	case opLoad:
-		return m.Load(c.k)
+		if m != nil {
+			return m.Load(c.k)
+		} else {
+			return s.Load(c.k)
+		}
 	case opStore:
-		m.Store(c.k, c.v)
+		if m != nil {
+			m.Store(c.k, c.v)
+		} else {
+			s.Store(c.k, c.v)
+		}
 		return nil, false
 	case opLoadOrStore:
-		return m.LoadOrStore(c.k, c.v)
+		if m != nil {
+			return m.LoadOrStore(c.k, c.v)
+		} else {
+			return s.LoadOrStore(c.k, c.v)
+		}
 	case opLoadAndDelete:
-		return m.LoadAndDelete(c.k)
+		if m != nil {
+			return m.LoadAndDelete(c.k)
+		} else {
+			return s.LoadAndDelete(c.k)
+		}
 	case opDelete:
-		m.Delete(c.k)
+		if m != nil {
+			m.Delete(c.k)
+		} else {
+			s.Delete(c.k)
+		}
 		return nil, false
 	default:
 		panic("invalid mapOp")
@@ -54,7 +77,7 @@ type mapResult struct {
 	ok    bool
 }
 
-func randValue(r *rand.Rand) string {
+func randValue(r *rand.Rand) any {
 	b := make([]byte, r.Intn(4))
 	for i := range b {
 		b[i] = 'a' + byte(rand.Intn(26))
@@ -63,7 +86,7 @@ func randValue(r *rand.Rand) string {
 }
 
 func (mapCall) Generate(r *rand.Rand, size int) reflect.Value {
-	c := mapCall{op: mapOps[rand.Intn(len(mapOps))], k: randValue(r)}
+	c := mapCall{op: mapOps[rand.Intn(len(mapOps))], k: randValue(r).(string)}
 	switch c.op {
 	case opStore, opLoadOrStore:
 		c.v = randValue(r)
@@ -71,36 +94,41 @@ func (mapCall) Generate(r *rand.Rand, size int) reflect.Value {
 	return reflect.ValueOf(c)
 }
 
-func applyCalls(m MutexMap[string, string], calls []mapCall) (results []mapResult, final map[any]any) {
+func applyCalls(m *MutexMap[string, any], s *sync.Map, calls []mapCall) (results []mapResult, final map[any]any) {
 	for _, c := range calls {
-		v, ok := c.apply(m)
+		v, ok := c.apply(m, s)
 		results = append(results, mapResult{v, ok})
 	}
 
 	final = make(map[any]any)
-	m.Range(func(k, v string) bool {
-		final[k] = v
-		return true
-	})
+	if m != nil {
+		m.Range(func(k string, v any) bool {
+			final[k] = v
+			return true
+		})
+	} else {
+		s.Range(func(k any, v any) bool {
+			final[k] = v
+			return true
+		})
+	}
 
 	return results, final
 }
 
-// func applyMap(calls []mapCall) ([]mapResult, map[any]any) {
-// return applyCalls(new(sync.Map), calls)
-// }
-
-func applyRWMutexMap(calls []mapCall) ([]mapResult, map[any]any) {
-	// return applyCalls(new(RWMutexMap), calls)
-	mutexMap := MutexMap[string, string]{store: make(map[string]string)}
-	return applyCalls(mutexMap, calls)
+func applySyncMap(calls []mapCall) ([]mapResult, map[any]any) {
+	return applyCalls(nil, new(sync.Map), calls)
 }
 
-// func TestMapMatchesRWMutex(t *testing.T) {
-// if err := quick.CheckEqual(applyMap, applyRWMutexMap, nil); err != nil {
-// t.Error(err)
-// }
-// }
+func applyMutexMap(calls []mapCall) ([]mapResult, map[any]any) {
+	return applyCalls(NewMutexMap[string, any](), nil, calls)
+}
+
+func TestMapMatchesSyncMap(t *testing.T) {
+	if err := quick.CheckEqual(applyMutexMap, applySyncMap, nil); err != nil {
+		t.Error(err)
+	}
+}
 
 func TestConcurrentRange(t *testing.T) {
 	const mapSize = 1 << 10
