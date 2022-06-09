@@ -32,7 +32,6 @@ type mapCall struct {
 	v  any
 }
 
-// func (c mapCall) apply(m mapInterface) (any, bool) {
 func (c mapCall) apply(m *MutexMap[string, any], s *sync.Map) (any, bool) {
 	switch c.op {
 	case opLoad:
